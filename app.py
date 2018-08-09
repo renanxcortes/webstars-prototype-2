@@ -417,7 +417,7 @@ def change_spatial_travel_interval(checkedValues, interval, n):
 @app.callback(
     Output('choropleth-graph', 'figure'),
     [Input('type_data_selector', 'value'),
-     Input('timeseries-graph','hoverData'),
+     Input('timeseries-graph','clickData'), #'hoverData'),
      Input('years-slider','value'), 
      Input('spatial_interval-event', 'n_intervals')],
     [State('spatial_travel-check', 'values')],
@@ -518,7 +518,7 @@ def update_map(type_data, year_hovered, year_selected_slider, n, checkedValues):
 @app.callback(
     Output('scatter-graph', 'figure'),
     [Input('type_data_selector', 'value'),
-     Input('timeseries-graph','hoverData'),
+     Input('timeseries-graph','clickData'),#'hoverData'),
      Input('years-slider','value'),
      Input('choropleth-graph','selectedData'),
      Input('scatter-graph','selectedData'),
@@ -677,7 +677,7 @@ def update_scatter(type_data, year_hovered, year_selected_slider,
 
 @app.callback(
     Output('timeseries-graph', 'figure'),
-    [Input('timeseries-graph','hoverData'),
+    [Input('timeseries-graph','clickData'),#'hoverData'),
     Input('years-slider', 'value')],
     [State('years-slider', 'min')]
 )
@@ -727,7 +727,7 @@ def update_TimeSeries(year_hovered, year_selected_slider, minValue):
 @app.callback(
     Output('boxplot-graph', 'figure'),
     [Input('type_data_selector', 'value'),
-     Input('timeseries-graph','hoverData'),
+     Input('timeseries-graph','clickData'),#'hoverData'),
      Input('choropleth-graph','selectedData'),
      Input('scatter-graph','selectedData'),
      Input('years-slider','value')])
@@ -792,7 +792,7 @@ def update_boxplot(type_data, year_hovered, states_selected_choropleth, states_s
     [Input('type_data_selector', 'value'),
      Input('choropleth-graph','clickData'),
      #Input('scatter-graph','clickData'),
-     Input('timeseries-graph','hoverData'),
+     Input('timeseries-graph','clickData'),#'hoverData'),
      Input('years-slider', 'value')],
      [State('years-slider', 'min')])
 def update_timepath(type_data, state_clicked_choropleth, year_hovered, year_selected_slider, minValue): # , state_clicked_scatter
