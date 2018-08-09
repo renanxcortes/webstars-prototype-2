@@ -1106,31 +1106,32 @@ def update_rankpath(rank_selected, year_selected_slider): #year_hovered,
                 fillcolor = 'red',
                 hoverinfo = 'none'
         )
-        rankpath_lines = dict(
-                        x = rp_aux['x'], 
-                        y = rp_aux['y'],
-                        mode = 'lines', 
-                        name = 'Path',
-                        opacity = 1, # opacity_index/30,
-                        hoverinfo = 'none',
-                        line = dict(color = 'red', width = 4),
-                        showlegend = False)
-        rankpath_markers = dict(
-                            x = rp_aux['x'], 
-                            y = rp_aux['y'],
-                            mode = 'markers',
-                            hoverinfo = 'text',
-                            marker = dict(size = rp_aux['dot_size'],# 12,
-                                          color = rp_aux['dot_color'],
-                                          opacity = 1),
-                            name = '',
-                            text = rp_aux['Name'],
-                            showlegend = False)
-
         RankPath_Data.append(county_outline)
         RankPath_Data.append(hover_point)
-        RankPath_Data.append(rankpath_lines)
-        RankPath_Data.append(rankpath_markers)
+    
+    rankpath_lines = dict(
+                    x = rp_aux['x'], 
+                    y = rp_aux['y'],
+                    mode = 'lines', 
+                    name = 'Path',
+                    opacity = 1, # opacity_index/30,
+                    hoverinfo = 'none',
+                    line = dict(color = 'red', width = 4),
+                    showlegend = False)
+    rankpath_markers = dict(
+                        x = rp_aux['x'], 
+                        y = rp_aux['y'],
+                        mode = 'markers',
+                        hoverinfo = 'text',
+                        marker = dict(size = rp_aux['dot_size'],# 12,
+                                      color = rp_aux['dot_color'],
+                                      opacity = 1),
+                        name = '',
+                        text = rp_aux['Name'],
+                        showlegend = False)
+    
+    RankPath_Data.append(rankpath_lines)
+    RankPath_Data.append(rankpath_markers)
         
     
     RankPath = dict(data = RankPath_Data, layout = RankPath_Layout)
