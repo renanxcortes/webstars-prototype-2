@@ -350,21 +350,47 @@ app.layout = html.Div(
                 vertical = True,
                 children=[
         
-                dcc.Tab(label='Directional LISA', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
+                dcc.Tab(label='Directional LISA (Rose)', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
                         
-                html.H3(children='Put here Directional LISA\'s features of Giddy.', 
-                style={'textAlign': 'center',
-                   'margin-top': '60', 
-                   'font-size': '110%'}),
-    
-                html.Img(src='data:image/png;base64,{}'.format(encoded_image_stars.decode()), 
-                 style={'width': '150px',
-                'margin-left': 700}),
+                html.Div([
+                        
+                        html.P('Select the pair of years below:', style = {'font-size': '150%', 
+                                                                           'margin-top':25,
+                                                                           'margin-bottom':25,
+                                                                           'font-weight': 'bold', 
+                                                                           'margin-left':500, 
+                                                                           'margin-right':500}),
                 
-                html.Img(src='data:image/png;base64,{}'.format(encoded_image_plotly.decode()), 
-                 style={'width': '150px',
-                'margin-left': 700}) 
+                html.Div([
+                        dcc.RangeSlider(
+                        id='rose-range-slider',
+                        min = 1929,
+                        max = 2009,
+                        step = 1,
+                        marks = {str(year): str(year) for year in years_by_step},
+                        value = [1929, 2009]                        
+                                )], style = {'margin-bottom':60, 'margin-left':100, 'margin-right':100}),
                         
+                html.Div([
+                        
+                html.P('Circular sectors in diagram (k):', style = {'font-size': '150%', 'margin-top':25, 'font-weight': 'bold'}),
+                
+                dcc.Dropdown(
+                                id='rose-k',
+                                options = [{'label': i, 'value': i} for i in list(range(1, 51))],
+                                value = 30
+                                )], style = {'margin-left':550,
+                                         'margin-right':550,
+                                         'margin-bottom':25,
+                                         'margin-top':25}),
+            
+            
+                html.Div([
+                        dcc.Graph(
+                                id='rose-graph'
+                                
+                            )], style={'width':600, 'margin-left':400, 'margin-right':400})])
+                
                 ]),
             
                 dcc.Tab(label='Markov Methods and Mobility Measures', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
@@ -1588,6 +1614,87 @@ def update_lima_neighborhood(pair_years_range_slider):
     
     LIMA = dict(data = LIMA_Data, layout = LIMA_Layout)
     return LIMA
+
+############################################################
+    
+
+
+############################################################   
+    
+
+
+@app.callback(
+    Output('rose-graph', 'figure'),
+    [Input('rose-range-slider','value'),
+     Input('rose-k','value')]
+)
+def update_rose(rose_pair_years_range_slider, rose_k):
+    
+    #### TIDY DATASET ###
+    csv_path = ps.examples.get_path('usjoin.csv')
+    usjoin = pd.read_csv(csv_path)
+    
+    years = list(range(1929, 2010))                  
+    cols_to_calculate = list(map(str, years))
+    
+    shp_path = ps.examples.get_path('us48.shp')
+    us48_map = gpd.read_file(shp_path)
+    us48_map = us48_map[['STATE_FIPS','geometry']]
+    us48_map.STATE_FIPS = us48_map.STATE_FIPS.astype(int)
+    df_map = us48_map.merge(usjoin, on='STATE_FIPS')
+    
+    # Making the dataset tidy
+    us_tidy = pd.melt(df_map, 
+                      id_vars=['Name', 'STATE_FIPS', 'geometry'],
+                      value_vars=cols_to_calculate, 
+                      var_name='Year', 
+                      value_name='Income').sort_values('Name')
+    
+    # Function that calculates Per Capita Ratio
+    def calculate_pcr(x):
+        return x / np.mean(x)
+    
+    # Establishing a contiguity matrix for a specific year. It is the same for all years.
+    W = Queen.from_dataframe(us_tidy[us_tidy.Year == '1929'])
+    W.transform = 'r'
+    
+    # Function that calculates lagged value
+    def calculate_lag_value(x):
+        return ps.lag_spatial(W, x)
+    
+    # In the first function (calculate_pcr), a series is returned, in the second (calculate_lag_value), an array, so the assign method is used to keep the indexes of the pandas Dataframe
+    
+    us_tidy['PCR'] = us_tidy.groupby('Year').Income.apply(lambda x: calculate_pcr(x))
+    us_tidy = us_tidy.assign(Income_Lagged = us_tidy.groupby('Year').Income.transform(calculate_lag_value),
+                             PCR_Lagged = us_tidy.groupby('Year').PCR.transform(calculate_lag_value))
+    #### END OF TIDY DATASET ###
+    
+    
+    y_initial = us_tidy[us_tidy.Year == str(rose_pair_years_range_slider[0])].PCR
+    y_final   = us_tidy[us_tidy.Year == str(rose_pair_years_range_slider[1])].PCR
+    
+    Y = np.swapaxes(np.array([y_initial, y_final]), 0, 1)
+
+    r4 = giddy.directional.Rose(Y, W, k = rose_k)
+    r_aux = list(map(math.degrees, r4.theta.tolist()))
+    
+    Rose_Data = [dict(
+        type = 'scatterpolargl',
+        r = r4.r.tolist(),
+        theta = r_aux,
+        mode = 'markers',
+        marker = dict(
+            color = 'peru'
+        )
+        )]
+
+    Rose_Layout = dict(
+        title = 'Rose for {} and {} (k = {})'.format(rose_pair_years_range_slider[0], rose_pair_years_range_slider[1], rose_k),
+        showlegend = False
+    )
+    
+    Rose_Fig = dict(data = Rose_Data, layout = Rose_Layout)
+    return Rose_Fig
 
 ############################################################
 
