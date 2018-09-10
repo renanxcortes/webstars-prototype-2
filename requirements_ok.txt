@@ -12,3 +12,6 @@ dash-renderer
 pandas
 geopandas
 pysal
+giddy
+numpy
+matplotlib==2.1.0
