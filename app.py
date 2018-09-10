@@ -369,7 +369,7 @@ app.layout = html.Div(
                         step = 1,
                         marks = {str(year): str(year) for year in years_by_step},
                         value = [1929, 2009]                        
-                                )], style = {'margin-bottom':60, 'margin-left':100, 'margin-right':100}),
+                                )], style = {'margin-bottom':60, 'margin-left':50, 'margin-right':50}),
                         
                 html.Div([
                         
@@ -390,7 +390,7 @@ app.layout = html.Div(
                                 id='rose-graph'
                                 
                             )], style={'width':600, 'margin-left':400, 'margin-right':400})])
-                
+
                 ]),
             
                 dcc.Tab(label='Markov Methods and Mobility Measures', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
@@ -1617,6 +1617,8 @@ def update_lima_neighborhood(pair_years_range_slider):
 
 ############################################################
     
+
+
 
 
 ############################################################   
