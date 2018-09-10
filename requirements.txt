@@ -12,3 +12,8 @@ dash-renderer
 pandas
 geopandas
 pysal
+giddy
+numpy
+string
+math
+matplotlib
