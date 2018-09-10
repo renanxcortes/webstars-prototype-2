@@ -1691,7 +1691,7 @@ def update_rose(rose_pair_years_range_slider, rose_k):
         )]
 
     Rose_Layout = dict(
-        title = 'Rose for {} and {} (k = {})'.format(rose_pair_years_range_slider[0], rose_pair_years_range_slider[1], rose_k),
+        title = '<b>Rose for {} and {} (k = {})</b>'.format(rose_pair_years_range_slider[0], rose_pair_years_range_slider[1], rose_k),
         showlegend = False
     )
     
