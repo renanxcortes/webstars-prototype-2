@@ -16,7 +16,7 @@ import geopandas as gpd
 import base64 # https://github.com/plotly/dash/issues/71
 import string
 import math
-import matplotlib
+import matplotlib.pyplot as plt
 
 #image_filename_stars = 'C:\\Users\\Windows 8.1\\Desktop\\stars-dash\\web\\stars_logo.png' # replace with your own image
 image_filename_stars = 'stars_logo.png' # replace with your own image
@@ -1551,7 +1551,7 @@ def update_lima_neighborhood(pair_years_range_slider):
         biggest = mp[areas.index(max(areas))]
         return biggest
     
-    cmap = matplotlib.cm.get_cmap('Reds') #matplotlib.cm.get_cmap('Spectral')
+    cmap = plt.cm.get_cmap('Reds') #matplotlib.cm.get_cmap('Spectral')
     
     LIMA_Data = []
     for index,row in us_tidy_map.iterrows():
