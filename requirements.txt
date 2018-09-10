@@ -1,0 +1,17 @@
+alabaster
+anaconda-client
+#anaconda-navigator
+astroid
+astropy
+gunicorn
+dash
+dash-colorscales
+dash-core-components
+dash-html-components
+dash-renderer
+pandas
+geopandas
+pysal
+giddy
+numpy
+matplotlib
