@@ -14,5 +14,4 @@ geopandas
 pysal
 giddy
 numpy
-math
 matplotlib
