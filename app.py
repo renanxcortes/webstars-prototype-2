@@ -1,7 +1,11 @@
 import pandas as pd
 import numpy as np
 import plotly.graph_objs as go
+from plotly import tools
 import pysal as ps   
+from libpysal.weights.contiguity import Queen
+import giddy
+from giddy import markov,mobility
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
@@ -10,6 +14,9 @@ from scipy import stats
 from scipy.stats import rankdata
 import geopandas as gpd
 import base64 # https://github.com/plotly/dash/issues/71
+import string
+import math
+import matplotlib
 
 #image_filename_stars = 'C:\\Users\\Windows 8.1\\Desktop\\stars-dash\\web\\stars_logo.png' # replace with your own image
 image_filename_stars = 'stars_logo.png' # replace with your own image
@@ -109,6 +116,15 @@ ranks_options[0]['label'] = '1st'
 ranks_options[1]['label'] = '2nd'
 ranks_options[2]['label'] = '3rd'
 
+
+
+
+
+
+
+
+
+
 '''
 ~~~~~~~~~~~~~~~~
 ~~ APP LAYOUT ~~
@@ -124,7 +140,7 @@ app.layout = html.Div(
                             style={'textAlign': 'center'}),
                 
                 
-                dcc.Tabs(id="tabs", style = {'textAlign': 'center', 
+                dcc.Tabs(id="main_tabs", style = {'textAlign': 'center', 
                                      'backgroundColor':'lightblue',
                                      #'width': '75%'
                                      },
@@ -148,7 +164,7 @@ app.layout = html.Div(
                         ]),
         
         
-                dcc.Tab(label='Spatiotemporal Overview', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
+                dcc.Tab(label='ESDA', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
         
 #                html.Div([                        
 #                        dcc.Checklist(
@@ -324,9 +340,128 @@ app.layout = html.Div(
                 ]),
         
         
-        dcc.Tab(label='Markov and Spatial Markov', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
+        dcc.Tab(label='Giddy', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
                 
-                html.P('Put here the markov features')
+                dcc.Tabs(id="giddy_tabs", style = {'textAlign': 'center', 
+                                     'backgroundColor':'lightblue',
+                                     #'width': '75%'
+                                     },
+                vertical = True,
+                children=[
+        
+                dcc.Tab(label='Directional LISA', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
+                        
+                html.H3(children='Put here Directional LISA\'s features of Giddy.', 
+                style={'textAlign': 'center',
+                   'margin-top': '60', 
+                   'font-size': '110%'}),
+    
+                html.Img(src='data:image/png;base64,{}'.format(encoded_image_stars.decode()), 
+                 style={'width': '150px',
+                'margin-left': 700}),
+                
+                html.Img(src='data:image/png;base64,{}'.format(encoded_image_plotly.decode()), 
+                 style={'width': '150px',
+                'margin-left': 700}) 
+                        
+                ]),
+            
+                dcc.Tab(label='Markov Methods and Mobility Measures', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
+                
+                
+                html.Div([
+                html.P('Select the number of classes (quantiles):', style = {'font-size': '150%', 'margin-top':25, 'font-weight': 'bold'}),
+                
+                html.Div([
+                dcc.Dropdown(
+                                id='markov-pooled-classes-dropdown',
+                                options = [{'label': i, 'value': i} for i in range(1, 10)],
+                                value = 5
+                                ),
+                        
+                html.P('Select the number of spatial lags:', style = {'font-size': '150%', 'margin-top':25, 'font-weight': 'bold'}),
+                
+                dcc.Dropdown(
+                                id='markov-pooled-spatial-dropdown',
+                                options = [{'label': i, 'value': i} for i in [3, 6, 9]],
+                                value = 3
+                                )], style = {'margin-left':500,
+                                         'margin-right':500,
+                                         'margin-top':10}),
+                        
+                html.Div([                           
+                dcc.Graph(id='markov-pooled-graph')], style = {'margin-left':185,
+                                             'margin-right':150,
+                                             'margin-top':25}),
+                        
+                
+                html.Div([                           
+                dcc.Graph(id='markov-spatial-graph')], style = {'margin-left':185,
+                                             'margin-right':150,
+                                             'margin-top':25})
+                        
+    
+                
+                ], className="twelve columns", style={#'width': '75%',
+                                                  'textAlign': 'center', 
+                                                  #'margin-left':150,
+                                                  #'margin-top':20,
+                                                  'backgroundColor':'rgb(244, 244, 255)'})
+                            
+                ]),
+            
+            
+                dcc.Tab(label='Rank Methods', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
+                        
+                html.Div([
+                        
+                        html.P('Select the pair of years below:', style = {'font-size': '150%', 
+                                                                           'margin-top':25,
+                                                                           'margin-bottom':25,
+                                                                           'font-weight': 'bold', 
+                                                                           'margin-left':500, 
+                                                                           'margin-right':500}),
+                
+                html.Div([
+                        dcc.RangeSlider(
+                        id='rank-range-slider',
+                        min = 1929,
+                        max = 2009,
+                        step = 1,
+                        marks = {str(year): str(year) for year in years_by_step},
+                        value = [1929, 2009]                        
+                                )], style = {'margin-bottom':60}),
+                        
+                        
+                        dcc.Graph(
+                                id='lima-neighborhood-graph'
+                                
+                            )], style={'width':1350, 
+                                       'margin':25, 
+                                       'float': 'left'}),
+                                
+                
+                        
+                ]),
+            
+                dcc.Tab(label='Miscellaneous', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
+                        
+                html.H3(children='Put here other features from Giddy.', 
+                style={'textAlign': 'center',
+                   'margin-top': '60', 
+                   'font-size': '110%'}),
+    
+                html.Img(src='data:image/png;base64,{}'.format(encoded_image_stars.decode()), 
+                 style={'width': '150px',
+                'margin-left': 700}),
+                
+                html.Img(src='data:image/png;base64,{}'.format(encoded_image_plotly.decode()), 
+                 style={'width': '150px',
+                'margin-left': 700}) 
+                        
+                ])
+            
+                ])
                 
                 ])
         
@@ -526,12 +661,12 @@ def update_map(type_data, year_hovered, year_selected_slider, n, checkedValues):
 def update_scatter(type_data, year_hovered, year_selected_slider, 
                   states_selected_choropleth, states_selected_scatter, state_clicked_choropleth):
     
-    print('type_data:', type_data)
-    print('year_hovered:', year_hovered)
-    print('year_selected_slider:', year_selected_slider)
-    print('states_selected_choropleth:', states_selected_choropleth)
-    print('states_selected_scatter:', states_selected_scatter)
-    print('state_clicked_choropleth:', state_clicked_choropleth)
+    #print('type_data:', type_data)
+    #print('year_hovered:', year_hovered)
+    #print('year_selected_slider:', year_selected_slider)
+    #print('states_selected_choropleth:', states_selected_choropleth)
+    #print('states_selected_scatter:', states_selected_scatter)
+    #print('state_clicked_choropleth:', state_clicked_choropleth)
     
     if type_data == 'raw': 
         df_map = df_map_raw
@@ -760,7 +895,8 @@ def update_boxplot(type_data, year_hovered, states_selected_choropleth, states_s
     #states = np.array(df_map['Name'])
     #colors = np.where(np.isin(states, state_selected), '#FF0066', '#0066FF')
         
-    trace0 = go.Box(
+    trace0 = dict(
+        type = 'box',
         y = df_map[str(year)],
         name = 'Boxplot of the variable',
         boxpoints='all',                                             # Show the underlying point of the boxplot
@@ -1136,6 +1272,321 @@ def update_rankpath(rank_selected, year_selected_slider): #year_hovered,
     
     RankPath = dict(data = RankPath_Data, layout = RankPath_Layout)
     return RankPath
+
+############################################################
+    
+@app.callback(
+    Output('markov-pooled-graph', 'figure'),
+    [Input('markov-pooled-classes-dropdown','value'),
+     Input('markov-pooled-spatial-dropdown','value')])
+def update_markov_pooled_graph(markov_class_value, markov_spatial_value):
+    
+    #### TIDY DATASET ###
+    csv_path = ps.examples.get_path('usjoin.csv')
+    usjoin = pd.read_csv(csv_path)
+    
+    years = list(range(1929, 2010))                  
+    cols_to_calculate = list(map(str, years))
+    
+    shp_path = ps.examples.get_path('us48.shp')
+    us48_map = gpd.read_file(shp_path)
+    us48_map = us48_map[['STATE_FIPS','geometry']]
+    us48_map.STATE_FIPS = us48_map.STATE_FIPS.astype(int)
+    df_map = us48_map.merge(usjoin, on='STATE_FIPS')
+    
+    # Making the dataset tidy
+    us_tidy = pd.melt(df_map, 
+                      id_vars=['Name', 'STATE_FIPS', 'geometry'],
+                      value_vars=cols_to_calculate, 
+                      var_name='Year', 
+                      value_name='Income').sort_values('Name')
+    
+    # Function that calculates Per Capita Ratio
+    def calculate_pcr(x):
+        return x / np.mean(x)
+    
+    # Establishing a contiguity matrix for a specific year. It is the same for all years.
+    W = Queen.from_dataframe(us_tidy[us_tidy.Year == '1929'])
+    W.transform = 'r'
+    
+    # Function that calculates lagged value
+    def calculate_lag_value(x):
+        return ps.lag_spatial(W, x)
+    
+    # In the first function (calculate_pcr), a series is returned, in the second (calculate_lag_value), an array, so the assign method is used to keep the indexes of the pandas Dataframe
+    
+    us_tidy['PCR'] = us_tidy.groupby('Year').Income.apply(lambda x: calculate_pcr(x))
+    us_tidy = us_tidy.assign(Income_Lagged = us_tidy.groupby('Year').Income.transform(calculate_lag_value),
+                             PCR_Lagged = us_tidy.groupby('Year').PCR.transform(calculate_lag_value))
+    #### END OF TIDY DATASET ###
+    
+    smc_df_aux = us_tidy[['Name', 'Year', 'PCR']].pivot(index = 'Name', columns = 'Year', values = 'PCR')
+
+    sm = giddy.markov.Spatial_Markov(smc_df_aux, W, fixed = True, k = markov_class_value, m = markov_spatial_value)     
+    
+    shorrock_1 = mobility.markov_mobility(sm.p, measure="P")
+    shorrock_2 = mobility.markov_mobility(sm.p, measure="D")
+    som_con    = mobility.markov_mobility(sm.p, measure = "L2")
+    
+    Heatmap_Data = [dict(
+                        type = 'heatmap',
+                        x = list(string.ascii_lowercase[0:markov_class_value]),
+                        y = list(reversed(list(string.ascii_uppercase[0:markov_class_value]))),
+                        z = list(reversed(sm.p.tolist())) # Reversed list
+                        )]
+    
+    Heatmap_Layout = dict(title = '<b>Pooled Markov transition probability matrix</b> <br>Shorrock 1\'s: {}, Shorrock 2\'s: {}, Sommers and Conlisk\'s: {}</br>'.format(round(shorrock_1, 2), round(shorrock_2, 2), round(som_con, 2)),
+                          titlefont = {"size": 24,
+                                      "family": "Arial"})
+    
+    Heatmap_Pooled = dict(data = Heatmap_Data, layout = Heatmap_Layout)
+    #print(Heatmap_Pooled)    
+    return Heatmap_Pooled
+
+############################################################ 
+    
+
+
+
+
+
+############################################################
+    
+@app.callback(
+    Output('markov-spatial-graph', 'figure'),
+    [Input('markov-pooled-classes-dropdown','value'),
+     Input('markov-pooled-spatial-dropdown','value')])
+def update_markov_spatial_graph(markov_class_value, markov_spatial_value):
+    
+    #### TIDY DATASET ###
+    csv_path = ps.examples.get_path('usjoin.csv')
+    usjoin = pd.read_csv(csv_path)
+    
+    years = list(range(1929, 2010))                  
+    cols_to_calculate = list(map(str, years))
+    
+    shp_path = ps.examples.get_path('us48.shp')
+    us48_map = gpd.read_file(shp_path)
+    us48_map = us48_map[['STATE_FIPS','geometry']]
+    us48_map.STATE_FIPS = us48_map.STATE_FIPS.astype(int)
+    df_map = us48_map.merge(usjoin, on='STATE_FIPS')
+    
+    # Making the dataset tidy
+    us_tidy = pd.melt(df_map, 
+                      id_vars=['Name', 'STATE_FIPS', 'geometry'],
+                      value_vars=cols_to_calculate, 
+                      var_name='Year', 
+                      value_name='Income').sort_values('Name')
+    
+    # Function that calculates Per Capita Ratio
+    def calculate_pcr(x):
+        return x / np.mean(x)
+    
+    # Establishing a contiguity matrix for a specific year. It is the same for all years.
+    W = Queen.from_dataframe(us_tidy[us_tidy.Year == '1929'])
+    W.transform = 'r'
+    
+    # Function that calculates lagged value
+    def calculate_lag_value(x):
+        return ps.lag_spatial(W, x)
+    
+    # In the first function (calculate_pcr), a series is returned, in the second (calculate_lag_value), an array, so the assign method is used to keep the indexes of the pandas Dataframe
+    
+    us_tidy['PCR'] = us_tidy.groupby('Year').Income.apply(lambda x: calculate_pcr(x))
+    us_tidy = us_tidy.assign(Income_Lagged = us_tidy.groupby('Year').Income.transform(calculate_lag_value),
+                             PCR_Lagged = us_tidy.groupby('Year').PCR.transform(calculate_lag_value))
+    #### END OF TIDY DATASET ###
+    
+    smc_df_aux = us_tidy[['Name', 'Year', 'PCR']].pivot(index = 'Name', columns = 'Year', values = 'PCR')
+
+    sm = giddy.markov.Spatial_Markov(smc_df_aux, W, fixed = True, k = markov_class_value, m = markov_spatial_value)     
+    
+    rows_number = math.ceil(markov_spatial_value/3)
+    
+    fig = tools.make_subplots(rows = rows_number, 
+                              cols = 3, 
+                              subplot_titles = tuple(['Spatial Lag ' + str(i) for i in list(range(markov_spatial_value))]))
+    
+    for r in list(range(rows_number)):
+        for c in list(range(3)):
+            i = r * 3 + c
+            if(i == 0):
+                xaxis_aux = None
+                yaxis_aux = None
+            else:    
+                xaxis_aux = 'x' + str(i)
+                yaxis_aux = 'y' + str(i)
+            Heatmap_Data_Spatial_aux = dict(
+                type = 'heatmap',
+                name = 'Spatial Lag ' + str(i),
+                x = list(string.ascii_lowercase[0:markov_class_value]),
+                y = list(reversed(list(string.ascii_uppercase[0:markov_class_value]))),
+                z = list(reversed(sm.P[i])), # Reversed list
+                xaxis = xaxis_aux,
+                yaxis = yaxis_aux
+                )
+            fig.append_trace(Heatmap_Data_Spatial_aux, r+1, c+1)
+    
+    fig['layout'].update(title = '<b>Spatial Lags Subplots</b>', 
+                         titlefont = {"size": 18,
+                                      "family": "Arial"})
+    #print(fig['data'])
+    #print(fig)
+    #print('row number: ', rows_number)
+    Heatmap_Spatial = dict(data = fig['data'], layout = fig['layout'])   
+    return Heatmap_Spatial
+
+############################################################ 
+    
+
+
+
+
+
+
+
+
+############################################################   
+    
+
+
+@app.callback(
+    Output('lima-neighborhood-graph', 'figure'),
+    [Input('rank-range-slider','value')]
+)
+def update_lima_neighborhood(pair_years_range_slider):
+    
+    #### TIDY DATASET ###
+    csv_path = ps.examples.get_path('usjoin.csv')
+    usjoin = pd.read_csv(csv_path)
+    
+    years = list(range(1929, 2010))                  
+    cols_to_calculate = list(map(str, years))
+    
+    shp_path = ps.examples.get_path('us48.shp')
+    us48_map = gpd.read_file(shp_path)
+    us48_map = us48_map[['STATE_FIPS','geometry']]
+    us48_map.STATE_FIPS = us48_map.STATE_FIPS.astype(int)
+    df_map = us48_map.merge(usjoin, on='STATE_FIPS')
+    
+    # Making the dataset tidy
+    us_tidy = pd.melt(df_map, 
+                      id_vars=['Name', 'STATE_FIPS', 'geometry'],
+                      value_vars=cols_to_calculate, 
+                      var_name='Year', 
+                      value_name='Income').sort_values('Name')
+    
+    # Function that calculates Per Capita Ratio
+    def calculate_pcr(x):
+        return x / np.mean(x)
+    
+    # Establishing a contiguity matrix for a specific year. It is the same for all years.
+    W = Queen.from_dataframe(us_tidy[us_tidy.Year == '1929'])
+    W.transform = 'r'
+    
+    # Function that calculates lagged value
+    def calculate_lag_value(x):
+        return ps.lag_spatial(W, x)
+    
+    # In the first function (calculate_pcr), a series is returned, in the second (calculate_lag_value), an array, so the assign method is used to keep the indexes of the pandas Dataframe
+    
+    us_tidy['PCR'] = us_tidy.groupby('Year').Income.apply(lambda x: calculate_pcr(x))
+    us_tidy = us_tidy.assign(Income_Lagged = us_tidy.groupby('Year').Income.transform(calculate_lag_value),
+                             PCR_Lagged = us_tidy.groupby('Year').PCR.transform(calculate_lag_value))
+    #### END OF TIDY DATASET ###
+    
+    us_tidy_map = us_tidy[us_tidy.Year == '1929']
+    
+    y_initial = us_tidy[us_tidy.Year == str(pair_years_range_slider[0])].PCR
+    y_final   = us_tidy[us_tidy.Year == str(pair_years_range_slider[1])].PCR
+    
+    global_spatial_tau = giddy.rank.SpatialTau(np.array(y_initial), np.array(y_final), W, 999)
+    
+    tau_wr = giddy.rank.Tau_Local_Neighbor(y_initial, y_final, W, 999) 
+    #tau_wr
+    
+    LIMA_Layout = dict(
+        projection = dict(type='albers usa'),
+        title = '<b>Neighbor set LIMA between {} and {} (Spatial Kendall\'s Tau: {})</b>'.format(str(pair_years_range_slider[0]),str(pair_years_range_slider[1]), str(round(global_spatial_tau.tau_spatial, 2))),
+        titlefont = {"size": 24,
+                     "family": "Courier New"},
+        hovermode = 'closest',
+        paper_bgcolor = 'rgb(233,233,255)', 
+        plot_bgcolor = 'rgb(233,233,255)',
+        xaxis = dict(
+            autorange = True, # False,
+            #range = [-125, -65],
+            showgrid = False,
+            zeroline = False,
+            fixedrange = True
+        ),
+        yaxis = dict(
+            autorange = True, #False,
+            #range = [25, 49],
+            showgrid = False,
+            zeroline = False,
+            fixedrange = True
+        ),
+        #margin = dict(
+        #    t=20,
+        #    b=20,
+        #    r=20,
+        #    l=20
+        #),
+        width = 1100,
+        height = 650,
+        dragmode = 'select'
+    )
+           
+    
+    # I had to modify this code a little bit, because of the Multipolygon of shapely
+    # Also, I had to convert to lists the centroids and the exteriors of the Polygon
+    # http://toblerity.org/shapely/shapely.geometry.html
+    # Several States had multiple centroids... so I chose to take the value of the convex_hull
+    
+    
+    # Return Boggest polygon of a multipolygon object in python
+    def return_biggest(mp):
+        areas = [i.area for i in list(mp)]
+        biggest = mp[areas.index(max(areas))]
+        return biggest
+    
+    cmap = matplotlib.cm.get_cmap('Reds') #matplotlib.cm.get_cmap('Spectral')
+    
+    LIMA_Data = []
+    for index,row in us_tidy_map.iterrows():
+        if us_tidy_map['geometry'][index].type == 'Polygon':
+            x,y = row.geometry.exterior.xy
+            x = x.tolist()
+            y = y.tolist()
+            c_x,c_y = row.geometry.centroid.xy
+            c_x = c_x.tolist()
+            c_y = c_y.tolist()
+        elif us_tidy_map['geometry'][index].type == 'MultiPolygon':
+            x = return_biggest(us_tidy_map['geometry'][index]).exterior.xy[0].tolist()
+            y = return_biggest(us_tidy_map['geometry'][index]).exterior.xy[1].tolist()
+            c_x = [return_biggest(us_tidy_map['geometry'][index]).centroid.xy[0][0]]
+            c_y = [return_biggest(us_tidy_map['geometry'][index]).centroid.xy[1][0]]
+        else: 
+            print('stop')
+        county_outline = dict(
+                type = 'scatter',
+                showlegend = False,
+                legendgroup = "shapes",
+                line = dict(color='black', width=1.5),
+                x = x,
+                y = y,
+                marker = dict(size=0.01), # Because of the hull_convex, some unusual dots appeared. So this argument removes them.
+                fill='toself',
+                fillcolor = matplotlib.colors.rgb2hex(cmap(tau_wr.tau_ln[index])),
+                colorscale = 'Viridis',
+                hoverinfo = 'text',
+                text = 'LIMA: ' + str(round(tau_wr.tau_ln[index], 3))
+        )
+        LIMA_Data.append(county_outline)       
+    
+    LIMA = dict(data = LIMA_Data, layout = LIMA_Layout)
+    return LIMA
 
 ############################################################
 
