@@ -1,11 +1,10 @@
 import pandas as pd
 import numpy as np
-import plotly.graph_objs as go
 from plotly import tools
 import pysal as ps   
 from libpysal.weights.contiguity import Queen
 import giddy
-from giddy import markov,mobility
+from giddy import mobility
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
@@ -13,18 +12,16 @@ from dash.dependencies import Input, Output , State
 from scipy import stats
 from scipy.stats import rankdata
 import geopandas as gpd
-import base64 # https://github.com/plotly/dash/issues/71
+import base64 
 import string
 import math
-#import matplotlib
 import matplotlib.cm
 
-#image_filename_stars = 'C:\\Users\\Windows 8.1\\Desktop\\stars-dash\\web\\stars_logo.png' # replace with your own image
-image_filename_stars = 'stars_logo.png' # replace with your own image
+# https://github.com/plotly/dash/issues/71
+image_filename_stars = 'stars_logo.png'
 encoded_image_stars = base64.b64encode(open(image_filename_stars, 'rb').read())
 
-#image_filename_plotly = 'C:\\Users\\Windows 8.1\\Desktop\\stars-dash\\web\\plotly_logo.png' # replace with your own image
-image_filename_plotly = 'plotly_logo.png' # replace with your own image
+image_filename_plotly = 'plotly_logo.png'
 encoded_image_plotly = base64.b64encode(open(image_filename_plotly, 'rb').read())
 
 # For the more recent version of Dash with Tabs: pip install dash-core-components==0.24.0-rc2
@@ -37,81 +34,67 @@ app.config['suppress_callback_exceptions']=True # If you have an id in the layou
 # Boostrap CSS.
 app.css.append_css({'external_url': 'https://codepen.io/amyoshino/pen/jzXypZ.css'})  # noqa: E501
 
-# Reading Data
-# Read http://darribas.org/gds_scipy16/ipynb_md/01_data_processing.html
+
+# Reading and Processing Data #
+
+#### TIDY DATASET ###
 csv_path = ps.examples.get_path('usjoin.csv')
-shp_path = ps.examples.get_path('us48.shp')
-
-# Geopandas map
-gpd_map = gpd.read_file(shp_path)
-
 usjoin = pd.read_csv(csv_path)
-us48_map = ps.pdio.read_files(shp_path)
 
-# Columns to calculate PCR's and Moran'I as strings/objects
 years = list(range(1929, 2010))                  
 cols_to_calculate = list(map(str, years))
 
-# For years dropdowns
-years_aux = [str(i) for i in years] # Converting each element to string (it could be list(map(str, years)))
-years_options = [{'label': i, 'value': i} for i in years_aux]
-
-# us48_map has a left zero in states that have FIPS under 10
-#usjoin.STATE_FIPS
-#us48_map.STATE_FIPS
+shp_path = ps.examples.get_path('us48.shp')
+us48_map = gpd.read_file(shp_path)
+us48_map = us48_map[['STATE_FIPS','STATE_ABBR','geometry']]
 us48_map.STATE_FIPS = us48_map.STATE_FIPS.astype(int)
-gpd_map.STATE_FIPS = gpd_map.STATE_FIPS.astype(int)
+df_map = us48_map.merge(usjoin, on='STATE_FIPS')
 
-df_map_raw = us48_map.merge(usjoin, on='STATE_FIPS')
+# Making the dataset tidy
+us_tidy = pd.melt(df_map, 
+                  id_vars=['Name', 'STATE_FIPS', 'STATE_ABBR', 'geometry'],
+                  value_vars=cols_to_calculate, 
+                  var_name='Year', 
+                  value_name='Income').sort_values('Name')
 
-rk_map_raw = us48_map.merge(usjoin, on='STATE_FIPS')
-for year in years: rk_map_raw[str(year)] = rankdata(df_map_raw[str(year)], method='ordinal')
-
-
-
-# Calculating PCR
+# Function that calculates Per Capita Ratio
 def calculate_pcr(x):
     return x / np.mean(x)
 
-all_pcrs = usjoin[cols_to_calculate].apply(calculate_pcr)
-
-usjoin[cols_to_calculate] = all_pcrs
-
-W = ps.queen_from_shapefile(shp_path)
+# Establishing a contiguity matrix for a specific year. It is the same for all years.
+W = Queen.from_dataframe(us_tidy[us_tidy.Year == '1929'])
 W.transform = 'r'
 
-df_map_pcr = us48_map.merge(usjoin, on='STATE_FIPS') 
+# Function that calculates lagged value
+def calculate_lag_value(x):
+    return ps.lag_spatial(W, x)
 
-rk_map_pcr = us48_map.merge(usjoin, on='STATE_FIPS')
-for year in years: rk_map_pcr[str(year)] = rankdata(df_map_pcr[str(year)], method='ordinal')
+# Function that calculates rank
+def calculate_rank(x):
+    return rankdata(x, method = 'ordinal')
+
+# In the first function (calculate_pcr), a series is returned, in the second (calculate_lag_value), an array, so the assign method is used to keep the indexes of the pandas Dataframe
+
+us_tidy['PCR'] = us_tidy.groupby('Year').Income.apply(lambda x: calculate_pcr(x))
+us_tidy = us_tidy.assign(Rank = us_tidy.groupby('Year').Income.transform(calculate_rank),
+                         Income_Lagged = us_tidy.groupby('Year').Income.transform(calculate_lag_value),
+                         PCR_Lagged = us_tidy.groupby('Year').PCR.transform(calculate_lag_value))
+#### END OF TIDY DATASET ###
 
 
-###########################################         
-# Aux Objects (Time Series, sliders, etc. #
-###########################################        
+first_year = int(min(us_tidy.Year))
+last_year = int(max(us_tidy.Year))
+
+years = list(range(first_year, last_year+1))                  
+years_aux = [str(i) for i in years] # Converting each element to string (it could be list(map(str, years)))
+years_options = [{'label': i, 'value': i} for i in years_aux]
+
+ 
 step = 5
-years_by_step = list(map(str, list(range(1929, 2010, step))))         
-
-# Calculating Moran'I for every column
-morans = []
-for i in cols_to_calculate:
-    aux = ps.Moran(df_map_pcr[i], W).I
-    morans.append(aux)
-
-############################################################  
-df_map_pcr_aux = gpd_map.merge(usjoin, on='STATE_FIPS')
-rk_map_pcr_aux = gpd_map.merge(usjoin, on='STATE_FIPS')
-for year in years: rk_map_pcr_aux[str(year)] = rankdata(df_map_pcr_aux[str(year)], method='ordinal')
-
-    
-rk_map_pcr_tidy = pd.melt(rk_map_pcr_aux, 
-                          id_vars=['STATE_ABBR', 'geometry', 'Name'],
-                          value_vars=cols_to_calculate, 
-                          var_name='Year', 
-                          value_name='Rank')
+years_by_step = list(map(str, list(range(first_year, last_year + 1, step))))         
 
 # For ranks dropdowns
-ranks_aux = [str(i) for i in sorted(rk_map_pcr_tidy.Rank.unique())] # Converting each element to string (it could be list(map(str, years)))
+ranks_aux = [str(i) for i in sorted(us_tidy.Rank.unique())] # Converting each element to string (it could be list(map(str, years)))
 ranks_options = [{'label': i + 'th', 'value': i} for i in ranks_aux]
 ranks_options[0]['label'] = '1st'
 ranks_options[1]['label'] = '2nd'
@@ -119,8 +102,10 @@ ranks_options[2]['label'] = '3rd'
 
 
 
-
-
+# For Global Moran`s I
+W = Queen.from_dataframe(us_tidy[us_tidy.Year == str(first_year)])
+W.transform = 'r'
+morans = us_tidy.groupby('Year').Income.apply(lambda x: ps.Moran(x, W).I).tolist()
 
 
 
@@ -154,6 +139,51 @@ app.layout = html.Div(
                    'margin-top': '60', 
                    'font-size': '110%'}),
     
+                dcc.Upload(
+                    id='upload-csv',
+                    children=html.Div([
+                        'Drag and Drop or ',
+                        html.A('Select'), ' comma separated value (.csv)'
+                    ]),
+                    style={
+                        'width': '25%',
+                        'height': '60px',
+                        'lineHeight': '60px',
+                        'borderWidth': '1px',
+                        'borderStyle': 'dashed',
+                        'borderRadius': '5px',
+                        'textAlign': 'center',
+                        'margin': '10px',
+                        'margin-left': 600,
+                        'margin-right': 600
+                    },
+                    # Allow multiple files to be uploaded?
+                    multiple=False
+                    ),
+    
+                
+                    dcc.Upload(
+                    id='upload-shp',
+                    children=html.Div([
+                        'Drag and Drop or ',
+                        html.A('Select'), ' shapefile (.shp)'
+                    ]),
+                    style={
+                        'width': '25%',
+                        'height': '60px',
+                        'lineHeight': '60px',
+                        'borderWidth': '1px',
+                        'borderStyle': 'dashed',
+                        'borderRadius': '5px',
+                        'textAlign': 'center',
+                        'margin': '10px',
+                        'margin-left': 600,
+                        'margin-right': 600
+                    },
+                    # Allow multiple files to be uploaded?
+                    multiple=False
+                    ),
+    
                 html.Img(src='data:image/png;base64,{}'.format(encoded_image_stars.decode()), 
                  style={'width': '150px',
                 'margin-left': 700}),
@@ -166,15 +196,7 @@ app.layout = html.Div(
         
         
                 dcc.Tab(label='ESDA', style={'font-weight': 'bold', 'font-size': '120%'}, children=[
-        
-#                html.Div([                        
-#                        dcc.Checklist(
-#                            id='auto-check',
-#                            options=[{'label': ' Time Travel Animation ', 'value': 'auto'}],
-#                            values=[],
-#                        ),
-#                        ], style={'padding-top': '200px', 'display': 'inline-block', 'float': 'left'}),
-#                
+               
                 html.Div([
                         html.P('Select the Year:', style={'margin-top': '5', 
                                                           'font-size': '150%', 
@@ -267,17 +289,14 @@ app.layout = html.Div(
                             dcc.Dropdown(
                                 id='initial_years_dropdown',
                                 options=years_options,
-                                value='1929'
+                                value=str(first_year)
                             ),
                             dcc.Dropdown(
                                 id='final_years_dropdown',
                                 options=years_options,
-                                value='2009'
+                                value=str(last_year)
                             )], className="row"),
-                                
-                            #   dcc.Graph(
-                            #    id='boxplot-graph'
-                            #)            
+                                           
                         
                     ], className="four columns"),        
             html.Div([
@@ -364,11 +383,11 @@ app.layout = html.Div(
                 html.Div([
                         dcc.RangeSlider(
                         id='rose-range-slider',
-                        min = 1929,
-                        max = 2009,
+                        min = first_year,
+                        max = last_year,
                         step = 1,
                         marks = {str(year): str(year) for year in years_by_step},
-                        value = [1929, 2009]                        
+                        value = [first_year, last_year]                        
                                 )], style = {'margin-bottom':60, 'margin-left':50, 'margin-right':50}),
                         
                 html.Div([
@@ -452,11 +471,11 @@ app.layout = html.Div(
                 html.Div([
                         dcc.RangeSlider(
                         id='rank-range-slider',
-                        min = 1929,
-                        max = 2009,
+                        min = first_year,
+                        max = last_year,
                         step = 1,
                         marks = {str(year): str(year) for year in years_by_step},
-                        value = [1929, 2009]                        
+                        value = [first_year, last_year]                        
                                 )], style = {'margin-bottom':60}),
                         
                         
@@ -587,14 +606,23 @@ def change_spatial_travel_interval(checkedValues, interval, n):
 def update_map(type_data, year_hovered, year_selected_slider, n, checkedValues):
     
     if type_data == 'raw': 
-        df_map = df_map_raw
-        rk_map = rk_map_raw
+        df_map = us_tidy[['Name','STATE_ABBR','Year','Income']].\
+                 pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'Income').\
+                 reset_index().\
+                 merge(us48_map, on='STATE_ABBR')                 
         title_map = '(Raw)'
     
     else:
-        df_map = df_map_pcr
-        rk_map = rk_map_pcr
+        df_map = us_tidy[['Name','STATE_ABBR','Year','PCR']].\
+                 pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'PCR').\
+                 reset_index().\
+                 merge(us48_map, on='STATE_ABBR')
         title_map = '(PCR)'
+    
+    rk_map = us_tidy[['Name','STATE_ABBR','Year','Rank']].\
+             pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'Rank').\
+             reset_index().\
+             merge(us48_map, on='STATE_ABBR')
     
     if year_hovered is None: 
         year = year_selected_slider
@@ -611,7 +639,7 @@ def update_map(type_data, year_hovered, year_selected_slider, n, checkedValues):
         if (ranking == 2): msg = '2nd'
         if (ranking == 3): msg = '3rd'
         for i, rank in enumerate(rk_map[str(year)]):
-            if (rank == ranking): msg += ' ' + rk_map['STATE_NAME'][i] + ': {0:.2f}'.format(df_map[str(year)][i])
+            if (rank == ranking): msg += ' ' + rk_map['Name'][i] + ': {0:.2f}'.format(df_map[str(year)][i])
         heading += '<br>(' + msg + ')'
     
     scl  = [[0.0, '#eff3ff'],[0.2, '#c6dbef'],[0.4, '#9ecae1'],[0.6, '#6baed6'],[0.8, '#3182bd'],[1.0, '#08519c']]
@@ -631,12 +659,11 @@ def update_map(type_data, year_hovered, year_selected_slider, n, checkedValues):
                                 width = 1
                             ) ),
                         colorbar = dict(
-                            thickness = 10,                          # default: 30 
+                            thickness = 10,
                             title = title_map)
                         ) ]
         
     Choropleth_Layout =  dict(
-                            #title = 'Income of US by State in 1929<br>(Hover for breakdown)',
                             title = heading,
                             geo = dict(
                             scope='usa',
@@ -688,41 +715,23 @@ def update_map(type_data, year_hovered, year_selected_slider, n, checkedValues):
 def update_scatter(type_data, year_hovered, year_selected_slider, 
                   states_selected_choropleth, states_selected_scatter, state_clicked_choropleth):
     
-    #print('type_data:', type_data)
-    #print('year_hovered:', year_hovered)
-    #print('year_selected_slider:', year_selected_slider)
-    #print('states_selected_choropleth:', states_selected_choropleth)
-    #print('states_selected_scatter:', states_selected_scatter)
-    #print('state_clicked_choropleth:', state_clicked_choropleth)
-    
     if type_data == 'raw': 
-        df_map = df_map_raw
+        df_map = us_tidy[['Name','STATE_ABBR','Year','Income']].\
+                 pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'Income').\
+                 reset_index().\
+                 merge(us48_map, on='STATE_ABBR')  
     
     else:
-        df_map = df_map_pcr
+        df_map = us_tidy[['Name','STATE_ABBR','Year','PCR']].\
+                 pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'PCR').\
+                 reset_index().\
+                 merge(us48_map, on='STATE_ABBR')
         
     if year_hovered is None: 
         year = year_selected_slider
     
     else:
         year = year_hovered['points'][0]['x']
-    
-#    state_selected = ['California']
-#    if ((states_selected_choropleth is None) & (state_clicked_choropleth is None)):
-#        state_selected = ['California']
-#        title_graph = state_selected[0]
-#    
-#    if ((states_selected_choropleth is None) & (state_clicked_choropleth is not None)):
-#        state_selected = [str(state_clicked_choropleth['points'][0]['text'])]
-#        title_graph = state_selected[0]
-#        
-#    if ((states_selected_choropleth is None) & (states_selected_scatter is not None)):
-#        state_selected = [i['text'] for i in states_selected_scatter['points']]# state_selected_choropleth['points'][0]['text']
-#        title_graph = 'Multiple States'
-#    
-#    if ((states_selected_choropleth is not None)):
-#        state_selected = [i['text'] for i in states_selected_choropleth['points']]# state_selected_choropleth['points'][0]['text']
-#        title_graph = 'Multiple States'
     
     if ((states_selected_choropleth is None) & (state_clicked_choropleth is None)):
         state_selected = ['California']
@@ -736,9 +745,6 @@ def update_scatter(type_data, year_hovered, year_selected_slider,
         state_selected = [i['text'] for i in states_selected_choropleth['points']]# state_selected_choropleth['points'][0]['text']
         title_graph = 'Multiple States'
     
-    #df_map[str(year)] = [48,2,3,4,5,6,7,8,9,60,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,1]
-
-    #print(df_map[str(year)])
     VarLag = ps.lag_spatial(W, df_map[str(year)])
     Var = df_map[str(year)]
 
@@ -764,12 +770,6 @@ def update_scatter(type_data, year_hovered, year_selected_slider,
                             'line': {'color': '#009999'},
                             'name': 'Reg'}
     ]
-    
- 
-    #if (states_selected_choropleth is not None and
-    #    'points' in states_selected_choropleth and len(states_selected_choropleth['points']) >= 2):
-    #    var = [v['z'] for v in states_selected_choropleth['points']]
-    #    varLag = [VarLag[v['pointIndex']] for v in states_selected_choropleth['points']]
     
     var = []
     varLag = []
@@ -843,13 +843,14 @@ def update_scatter(type_data, year_hovered, year_selected_slider,
     Input('years-slider', 'value')],
     [State('years-slider', 'min')]
 )
+
 def update_TimeSeries(year_hovered, year_selected_slider, minValue):
     
     if year_hovered is None:    
         theIDX = year_selected_slider - minValue
     
     else:
-        theIDX = year_hovered['points'][0]['x'] - minValue
+        theIDX = year_hovered['points'][0]['x'] - minValue    
     
     TimeSeries_Data = [
         {
@@ -896,17 +897,18 @@ def update_TimeSeries(year_hovered, year_selected_slider, minValue):
 def update_boxplot(type_data, year_hovered, states_selected_choropleth, states_selected_scatter, year_selected_slider):
     
     if type_data == 'raw': 
-        df_map = df_map_raw
+        df_map = us_tidy[['Name','STATE_ABBR','Year','Income']].\
+                 pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'Income').\
+                 reset_index().\
+                 merge(us48_map, on='STATE_ABBR')  
     
     else:
-        df_map = df_map_pcr
+        df_map = us_tidy[['Name','STATE_ABBR','Year','PCR']].\
+                 pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'PCR').\
+                 reset_index().\
+                 merge(us48_map, on='STATE_ABBR')  
 
     selected = []
-    #if ((states_selected_choropleth is None)):
-    #    state_selected = 'California'
-    #else:
-    #    state_selected = [i['text'] for i in states_selected_choropleth['points']]
-    #    selected = [i['pointIndex'] for i in states_selected_choropleth['points']]
     
     if ((states_selected_choropleth is not None)):
         selected = [i['pointIndex'] for i in states_selected_choropleth['points']]
@@ -954,26 +956,22 @@ def update_boxplot(type_data, year_hovered, states_selected_choropleth, states_s
     Output('timepath-graph', 'figure'),
     [Input('type_data_selector', 'value'),
      Input('choropleth-graph','clickData'),
-     #Input('scatter-graph','clickData'),
-     Input('timeseries-graph','hoverData'),#'clickData'),
+     Input('timeseries-graph','hoverData'),
      Input('years-slider', 'value')],
      [State('years-slider', 'min')])
 def update_timepath(type_data, state_clicked_choropleth, year_hovered, year_selected_slider, minValue): # , state_clicked_scatter
     
     if type_data == 'raw': 
-        df_map = df_map_raw
+        df_map = us_tidy[['Name','STATE_ABBR','Year','Income']].\
+                 pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'Income').\
+                 reset_index().\
+                 merge(us48_map, on='STATE_ABBR')
     
     else:
-        df_map = df_map_pcr
-    
-#    if ((state_clicked is None) & (state_clicked_scatter is None)): 
-#        chosen_state = 'California'
-#    
-#    elif ((state_clicked_scatter is None) & (state_clicked is not None)):
-#        chosen_state = str(state_clicked['points'][0]['text'])
-#    
-#    else:
-#        chosen_state = str(state_clicked_scatter['points'][0]['text'])
+        df_map = us_tidy[['Name','STATE_ABBR','Year','PCR']].\
+                 pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'PCR').\
+                 reset_index().\
+                 merge(us48_map, on='STATE_ABBR')
             
     if (state_clicked_choropleth is None):
         state_selected = 'California'
@@ -1044,19 +1042,26 @@ def update_timepath(type_data, state_clicked_choropleth, year_hovered, year_sele
      Input('initial_years_dropdown','value'),
      Input('final_years_dropdown','value'),
      Input('choropleth-graph','clickData'),
-     #Input('scatter-graph','clickData'),
      Input('spatial_interval-event', 'n_intervals')],
      [State('spatial_travel-check', 'values')])
 def update_density(type_data, initial_year, final_year, state_clicked_choropleth, n, checkedValues): # , state_clicked_scatter
     
     if type_data == 'raw': 
-        df_map = df_map_raw
-        rk_map = rk_map_raw
+        df_map = us_tidy[['Name','STATE_ABBR','Year','Income']].\
+                 pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'Income').\
+                 reset_index().\
+                 merge(us48_map, on='STATE_ABBR')
     
     else:
-        df_map = df_map_pcr
-        rk_map = rk_map_pcr
+        df_map = us_tidy[['Name','STATE_ABBR','Year','PCR']].\
+                 pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'PCR').\
+                 reset_index().\
+                 merge(us48_map, on='STATE_ABBR')
         
+    rk_map = us_tidy[['Name','STATE_ABBR','Year','Rank']].\
+         pivot_table(index = ['Name','STATE_ABBR'], columns = 'Year', values = 'Rank').\
+         reset_index().\
+         merge(us48_map, on='STATE_ABBR')
     
     pair_of_years = [initial_year, final_year]
     
@@ -1159,12 +1164,11 @@ def update_density(type_data, initial_year, final_year, state_clicked_choropleth
 @app.callback(
     Output('rank-path-graph', 'figure'),
     [Input('rankpath_dropdown','value'),
-     #Input('timeseries-graph','hoverData'),
      Input('years-slider-rank-path','value')]
 )
 def update_rankpath(rank_selected, year_selected_slider): #year_hovered,
     
-    df_map = gpd_map
+    df_map = us_tidy[us_tidy.Year == str(first_year)]
     
     #if year_hovered is None: 
     year = year_selected_slider
@@ -1174,7 +1178,7 @@ def update_rankpath(rank_selected, year_selected_slider): #year_hovered,
 
     chosen_rank = int(rank_selected)
     
-    rp_aux = rk_map_pcr_tidy[rk_map_pcr_tidy.Rank == chosen_rank]
+    rp_aux = us_tidy[us_tidy.Rank == chosen_rank].sort_values('Year')
 
     rp_aux['x'] = rp_aux.geometry.centroid.x
     rp_aux['y'] = rp_aux.geometry.centroid.y
@@ -1261,7 +1265,7 @@ def update_rankpath(rank_selected, year_selected_slider): #year_hovered,
                 type = 'scatter',
                 showlegend = False,
                 legendgroup = "centroids",
-                name = row.STATE_NAME,
+                name = row.Name,
                 marker = dict(size=4, color = 'black'),
                 x = c_x, #df.centroid.x, #c_x
                 y = c_y, #df.centroid.y, #c_y
@@ -1308,45 +1312,6 @@ def update_rankpath(rank_selected, year_selected_slider): #year_hovered,
      Input('markov-pooled-spatial-dropdown','value')])
 def update_markov_pooled_graph(markov_class_value, markov_spatial_value):
     
-    #### TIDY DATASET ###
-    csv_path = ps.examples.get_path('usjoin.csv')
-    usjoin = pd.read_csv(csv_path)
-    
-    years = list(range(1929, 2010))                  
-    cols_to_calculate = list(map(str, years))
-    
-    shp_path = ps.examples.get_path('us48.shp')
-    us48_map = gpd.read_file(shp_path)
-    us48_map = us48_map[['STATE_FIPS','geometry']]
-    us48_map.STATE_FIPS = us48_map.STATE_FIPS.astype(int)
-    df_map = us48_map.merge(usjoin, on='STATE_FIPS')
-    
-    # Making the dataset tidy
-    us_tidy = pd.melt(df_map, 
-                      id_vars=['Name', 'STATE_FIPS', 'geometry'],
-                      value_vars=cols_to_calculate, 
-                      var_name='Year', 
-                      value_name='Income').sort_values('Name')
-    
-    # Function that calculates Per Capita Ratio
-    def calculate_pcr(x):
-        return x / np.mean(x)
-    
-    # Establishing a contiguity matrix for a specific year. It is the same for all years.
-    W = Queen.from_dataframe(us_tidy[us_tidy.Year == '1929'])
-    W.transform = 'r'
-    
-    # Function that calculates lagged value
-    def calculate_lag_value(x):
-        return ps.lag_spatial(W, x)
-    
-    # In the first function (calculate_pcr), a series is returned, in the second (calculate_lag_value), an array, so the assign method is used to keep the indexes of the pandas Dataframe
-    
-    us_tidy['PCR'] = us_tidy.groupby('Year').Income.apply(lambda x: calculate_pcr(x))
-    us_tidy = us_tidy.assign(Income_Lagged = us_tidy.groupby('Year').Income.transform(calculate_lag_value),
-                             PCR_Lagged = us_tidy.groupby('Year').PCR.transform(calculate_lag_value))
-    #### END OF TIDY DATASET ###
-    
     smc_df_aux = us_tidy[['Name', 'Year', 'PCR']].pivot(index = 'Name', columns = 'Year', values = 'PCR')
 
     sm = giddy.markov.Spatial_Markov(smc_df_aux, W, fixed = True, k = markov_class_value, m = markov_spatial_value)     
@@ -1384,45 +1349,6 @@ def update_markov_pooled_graph(markov_class_value, markov_spatial_value):
     [Input('markov-pooled-classes-dropdown','value'),
      Input('markov-pooled-spatial-dropdown','value')])
 def update_markov_spatial_graph(markov_class_value, markov_spatial_value):
-    
-    #### TIDY DATASET ###
-    csv_path = ps.examples.get_path('usjoin.csv')
-    usjoin = pd.read_csv(csv_path)
-    
-    years = list(range(1929, 2010))                  
-    cols_to_calculate = list(map(str, years))
-    
-    shp_path = ps.examples.get_path('us48.shp')
-    us48_map = gpd.read_file(shp_path)
-    us48_map = us48_map[['STATE_FIPS','geometry']]
-    us48_map.STATE_FIPS = us48_map.STATE_FIPS.astype(int)
-    df_map = us48_map.merge(usjoin, on='STATE_FIPS')
-    
-    # Making the dataset tidy
-    us_tidy = pd.melt(df_map, 
-                      id_vars=['Name', 'STATE_FIPS', 'geometry'],
-                      value_vars=cols_to_calculate, 
-                      var_name='Year', 
-                      value_name='Income').sort_values('Name')
-    
-    # Function that calculates Per Capita Ratio
-    def calculate_pcr(x):
-        return x / np.mean(x)
-    
-    # Establishing a contiguity matrix for a specific year. It is the same for all years.
-    W = Queen.from_dataframe(us_tidy[us_tidy.Year == '1929'])
-    W.transform = 'r'
-    
-    # Function that calculates lagged value
-    def calculate_lag_value(x):
-        return ps.lag_spatial(W, x)
-    
-    # In the first function (calculate_pcr), a series is returned, in the second (calculate_lag_value), an array, so the assign method is used to keep the indexes of the pandas Dataframe
-    
-    us_tidy['PCR'] = us_tidy.groupby('Year').Income.apply(lambda x: calculate_pcr(x))
-    us_tidy = us_tidy.assign(Income_Lagged = us_tidy.groupby('Year').Income.transform(calculate_lag_value),
-                             PCR_Lagged = us_tidy.groupby('Year').PCR.transform(calculate_lag_value))
-    #### END OF TIDY DATASET ###
     
     smc_df_aux = us_tidy[['Name', 'Year', 'PCR']].pivot(index = 'Name', columns = 'Year', values = 'PCR')
 
@@ -1483,46 +1409,7 @@ def update_markov_spatial_graph(markov_class_value, markov_spatial_value):
 )
 def update_lima_neighborhood(pair_years_range_slider):
     
-    #### TIDY DATASET ###
-    csv_path = ps.examples.get_path('usjoin.csv')
-    usjoin = pd.read_csv(csv_path)
-    
-    years = list(range(1929, 2010))                  
-    cols_to_calculate = list(map(str, years))
-    
-    shp_path = ps.examples.get_path('us48.shp')
-    us48_map = gpd.read_file(shp_path)
-    us48_map = us48_map[['STATE_FIPS','geometry']]
-    us48_map.STATE_FIPS = us48_map.STATE_FIPS.astype(int)
-    df_map = us48_map.merge(usjoin, on='STATE_FIPS')
-    
-    # Making the dataset tidy
-    us_tidy = pd.melt(df_map, 
-                      id_vars=['Name', 'STATE_FIPS', 'geometry'],
-                      value_vars=cols_to_calculate, 
-                      var_name='Year', 
-                      value_name='Income').sort_values('Name')
-    
-    # Function that calculates Per Capita Ratio
-    def calculate_pcr(x):
-        return x / np.mean(x)
-    
-    # Establishing a contiguity matrix for a specific year. It is the same for all years.
-    W = Queen.from_dataframe(us_tidy[us_tidy.Year == '1929'])
-    W.transform = 'r'
-    
-    # Function that calculates lagged value
-    def calculate_lag_value(x):
-        return ps.lag_spatial(W, x)
-    
-    # In the first function (calculate_pcr), a series is returned, in the second (calculate_lag_value), an array, so the assign method is used to keep the indexes of the pandas Dataframe
-    
-    us_tidy['PCR'] = us_tidy.groupby('Year').Income.apply(lambda x: calculate_pcr(x))
-    us_tidy = us_tidy.assign(Income_Lagged = us_tidy.groupby('Year').Income.transform(calculate_lag_value),
-                             PCR_Lagged = us_tidy.groupby('Year').PCR.transform(calculate_lag_value))
-    #### END OF TIDY DATASET ###
-    
-    us_tidy_map = us_tidy[us_tidy.Year == '1929']
+    us_tidy_map = us_tidy[us_tidy.Year == str(first_year)]
     
     y_initial = us_tidy[us_tidy.Year == str(pair_years_range_slider[0])].PCR
     y_final   = us_tidy[us_tidy.Year == str(pair_years_range_slider[1])].PCR
@@ -1632,46 +1519,6 @@ def update_lima_neighborhood(pair_years_range_slider):
 )
 def update_rose(rose_pair_years_range_slider, rose_k):
     
-    #### TIDY DATASET ###
-    csv_path = ps.examples.get_path('usjoin.csv')
-    usjoin = pd.read_csv(csv_path)
-    
-    years = list(range(1929, 2010))                  
-    cols_to_calculate = list(map(str, years))
-    
-    shp_path = ps.examples.get_path('us48.shp')
-    us48_map = gpd.read_file(shp_path)
-    us48_map = us48_map[['STATE_FIPS','geometry']]
-    us48_map.STATE_FIPS = us48_map.STATE_FIPS.astype(int)
-    df_map = us48_map.merge(usjoin, on='STATE_FIPS')
-    
-    # Making the dataset tidy
-    us_tidy = pd.melt(df_map, 
-                      id_vars=['Name', 'STATE_FIPS', 'geometry'],
-                      value_vars=cols_to_calculate, 
-                      var_name='Year', 
-                      value_name='Income').sort_values('Name')
-    
-    # Function that calculates Per Capita Ratio
-    def calculate_pcr(x):
-        return x / np.mean(x)
-    
-    # Establishing a contiguity matrix for a specific year. It is the same for all years.
-    W = Queen.from_dataframe(us_tidy[us_tidy.Year == '1929'])
-    W.transform = 'r'
-    
-    # Function that calculates lagged value
-    def calculate_lag_value(x):
-        return ps.lag_spatial(W, x)
-    
-    # In the first function (calculate_pcr), a series is returned, in the second (calculate_lag_value), an array, so the assign method is used to keep the indexes of the pandas Dataframe
-    
-    us_tidy['PCR'] = us_tidy.groupby('Year').Income.apply(lambda x: calculate_pcr(x))
-    us_tidy = us_tidy.assign(Income_Lagged = us_tidy.groupby('Year').Income.transform(calculate_lag_value),
-                             PCR_Lagged = us_tidy.groupby('Year').PCR.transform(calculate_lag_value))
-    #### END OF TIDY DATASET ###
-    
-    
     y_initial = us_tidy[us_tidy.Year == str(rose_pair_years_range_slider[0])].PCR
     y_final   = us_tidy[us_tidy.Year == str(rose_pair_years_range_slider[1])].PCR
     
@@ -1703,7 +1550,5 @@ def update_rose(rose_pair_years_range_slider, rose_k):
 
 
 
-
-
 if __name__ == '__main__':
-    app.run_server() # ,port=8055 debug=True,port=8000, host='0.0.0.0'
+    app.run_server()
